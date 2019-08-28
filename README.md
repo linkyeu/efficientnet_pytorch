@@ -15,7 +15,9 @@ image = torch.randn(1, 3, 300, 300)
 model = efficientnet.efficientnet(net="B4", pretrained=True)
 features = model.features(image)
 ```
-In same way you can get output from any layer.
+In same way you can get output from any layer.</br>
+
+I have copied weights from [here](https://github.com/lukemelas/EfficientNet-PyTorch) and adopted for my implementation.
 
 
 
