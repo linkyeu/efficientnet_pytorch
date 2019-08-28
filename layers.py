@@ -4,6 +4,10 @@ import math
 import torch.nn.functional as F
 
 
+# def swish(x):
+#     return x * torch.sigmoid(x)
+
+
 class CBAMLayer(nn.Module):
     def __init__(self, channel, reduction=16, spatial_kernel=7, activation=torch.nn.ReLU6):
         super(CBAMLayer, self).__init__()
@@ -84,13 +88,14 @@ class DropConnect(nn.Module):
         self.ratio = 1.0 - ratio
 
     def forward(self, x):
-        if not self.training:
-            return x
+        return x
+#         if not self.training:
+#             return x
 
-        random_tensor = self.ratio
-        random_tensor += torch.rand([x.shape[0], 1, 1, 1], dtype=torch.float, device=x.device)
-        random_tensor.requires_grad_(False)
-        return x / self.ratio * random_tensor.floor()
+#         random_tensor = self.ratio
+#         random_tensor += torch.rand([x.shape[0], 1, 1, 1], dtype=torch.float, device=x.device)
+#         random_tensor.requires_grad_(False)
+#         return x / self.ratio * random_tensor.floor()
     
 
 class AdaptiveConcatPool2d(nn.Module):
@@ -170,3 +175,39 @@ class SamePadConv2d(nn.Conv2d):
         return F.conv2d(x, self.weight, self.bias, self.stride,
                         padding=(padding_rows // 2, padding_cols // 2),
                         dilation=self.dilation, groups=self.groups)
+
+
+class Flattener:
+    """Flatten modules in a list. Even with modules in modules.
+    Works recursively.
+    
+    Example:
+    
+    flatener = Flattener()
+    flatener(model.features[15])
+    
+    Returns a list of all layers in a module.
+    """
+    def __init__(self):
+        self.flattened_module = []
+    
+    def flat(self, module):
+        flattened_module = []
+        childrens = list(module.children())
+        for children in childrens:
+            flattened_module.append(children)
+        return flattened_module
+    
+    def __call__(self, module):
+        """Recursive function."""
+        childrens = list(module.children())
+        for children in childrens:
+            if len(self.flat(children))==0:
+                self.flattened_module.append(children)
+            else:
+                self.__call__(children) 
+        return self.flattened_module
+    
+    
+    
+

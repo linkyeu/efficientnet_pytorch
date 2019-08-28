@@ -1,4 +1,5 @@
 """EfficientNet architecture.
+
 See:
 - https://arxiv.org/abs/1905.11946 - EfficientNet
 - https://arxiv.org/abs/1801.04381 - MobileNet V2
@@ -7,20 +8,26 @@ See:
 - https://arxiv.org/abs/1803.02579 - Concurrent spatial and channel squeeze-and-excitation
 """
 
-import math
+import os
+import wget
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+import math
 import numpy as np
 import collections
-import torch.nn.functional as F
-import utils
-from models.layers import DropConnect, SamePadConv2d, Attention, Swish, conv_bn_act
 
+from layers import (DropConnect, SamePadConv2d, Attention, 
+                    Swish, conv_bn_act, Flattener)
 
-EfficientNetParam = collections.namedtuple("EfficientNetParam", [
-"width", "depth", "resolution", "dropout"])
+batch_norm_momentum=0.010000000000000009
+batch_norm_epsilon=1e-3
 
-# just for reference
+EfficientNetParam = collections.namedtuple(
+    "EfficientNetParam", ["width", "depth", "resolution", "dropout"])
+
 EfficientNetParams = {
   "B0": EfficientNetParam(1.0, 1.0, 224, 0.2),
   "B1": EfficientNetParam(1.0, 1.1, 240, 0.2),
@@ -29,45 +36,20 @@ EfficientNetParams = {
   "B4": EfficientNetParam(1.4, 1.8, 380, 0.4),
   "B5": EfficientNetParam(1.6, 2.2, 456, 0.4),
   "B6": EfficientNetParam(1.8, 2.6, 528, 0.5),
-  "B7": EfficientNetParam(2.0, 3.1, 600, 0.5)}
+  "B7": EfficientNetParam(2.0, 3.1, 600, 0.5),
+   }
 
-
-def efficientnet0(pretrained=False, num_classes=1000):
-    model = EfficientNet(num_classes=num_classes, width_coef=1., depth_coef=1., scale=224., dropout_ratio=0.2, 
-                         se_reduction=24, drop_connect_ratio=0.5)
-    if pretrained:
-        checkpoint = torch.load('/home/denys/DataScience/projects/owoschi/classification/models/weight/efficientnet-b0.pth')
-        filtered_state_dict = {k:v for k, v in checkpoint.items() if 'features' in k}
-        model.load_state_dict(filtered_state_dict, strict=False)
-    return model
-
-def efficientnet1(pretrained=False, num_classes=1000):
-    model = EfficientNet(num_classes=num_classes, width_coef=1., depth_coef=1.1, scale=240., dropout_ratio=0.2, 
-                         se_reduction=24, drop_connect_ratio=0.5)
-    if pretrained:
-        checkpoint = torch.load('/home/denys/DataScience/projects/owoschi/classification/models/weight/efficientnet-b1.pth')
-        filtered_state_dict = {k:v for k, v in checkpoint.items() if 'features' in k}
-        model.load_state_dict(filtered_state_dict, strict=False)
-    return model
-
-def efficientnet2(pretrained=False, num_classes=1000):
-    model = EfficientNet(num_classes=num_classes, width_coef=1.1, depth_coef=1.2, scale=260., dropout_ratio=0.3, 
-                         se_reduction=24, drop_connect_ratio=0.5)
-    if pretrained:
-        checkpoint = torch.load('/home/denys/DataScience/projects/owoschi/classification/models/weight/efficientnet-b2.pth')
-        filtered_state_dict = {k:v for k, v in checkpoint.items() if 'features' in k}
-        model.load_state_dict(filtered_state_dict, strict=False)
-    return model
-
-def efficientnet3(pretrained=False, num_classes=1000):
-    model = EfficientNet(num_classes=num_classes, width_coef=1.2, depth_coef=1.4, scale=300., dropout_ratio=0.3, 
-                         se_reduction=24, drop_connect_ratio=0.5)
-    if pretrained:
-        checkpoint = torch.load('/home/denys/DataScience/projects/owoschi/classification/models/weight/efficientnet-b3.pth')
-        filtered_state_dict = {k:v for k, v in checkpoint.items() if 'features' in k}
-        model.load_state_dict(filtered_state_dict, strict=False)
-    return model
-        
+EfficientNetUrls = {
+    'B0': 'https://drive.google.com/uc?export=download&id=1rNU-wCPT_ebdc7qG1NzwSoqXLJxIL9Qz', 
+    'B1': 'https://drive.google.com/uc?export=download&id=1rNU-wCPT_ebdc7qG1NzwSoqXLJxIL9Qz',
+    'B2': 'https://drive.google.com/uc?export=download&id=1SeA-VuRiuWI9f8PVuhTYYdu8NjKFl_dL',
+    'B3': 'https://drive.google.com/uc?export=download&id=1fhi6xlrJl1iKl2b2knxPchjCsI9f9-Fr',
+    'B4': 'https://drive.google.com/uc?export=download&id=1iroAuwlUssk3mzcbHdYDGhnXLm37ZfN2',
+    'B5': 'https://drive.google.com/uc?export=download&id=188XFvL4JqH8SX0Pb3EtTENdaGzolN4-s',
+    'B6': 'https://drive.google.com/uc?export=download&id=1PGLFWp3xF8LVUjVGJ_h9DYYhyOAGX2gG',
+    'B7': 'https://drive.google.com/uc?export=download&id=18BHuBD2HpjTj2r9ffHo_Y6dgdprmcGUc',
+    }
+    
 
 class InvertedResidual(nn.Module):
     def __init__(self, inp, oup, expand_ratio, kernel_size, stride, se_reduction, drop_connect_ratio=0.2):
@@ -90,33 +72,33 @@ class InvertedResidual(nn.Module):
             
         if expand_ratio == 1:
             self.conv = nn.Sequential(
-                # depth-wise
+                # depth-wise 
                 SamePadConv2d(inp=hidden_dim, oup=hidden_dim, kernel_size=kernel_size, stride=stride, groups=hidden_dim, 
                               bias=False),
-                nn.BatchNorm2d(hidden_dim),
-                Attention(channels=hidden_dim, reduction=4),  # somehow here reduction should be always 4
+                nn.BatchNorm2d(hidden_dim, eps=batch_norm_epsilon, momentum=batch_norm_momentum),
                 Swish(), 
+                Attention(channels=hidden_dim, reduction=4),  # somehow here reduction should be always 4
                 
                 # point-wise-linear
                 SamePadConv2d(inp=hidden_dim, oup=oup, kernel_size=1, stride=1, bias=False),
-                nn.BatchNorm2d(oup),
+                nn.BatchNorm2d(oup, eps=batch_norm_epsilon, momentum=batch_norm_momentum),
             )
         else:
             self.conv = nn.Sequential(
                 # point-wise
-                SamePadConv2d(inp, hidden_dim, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(hidden_dim),
+                SamePadConv2d(inp, hidden_dim, kernel_size=1, stride=1, bias=False),
+                nn.BatchNorm2d(hidden_dim, eps=batch_norm_epsilon, momentum=batch_norm_momentum),
                 Swish(), 
                                 
                 # depth-wise
                 SamePadConv2d(hidden_dim, hidden_dim, kernel_size, stride, groups=hidden_dim, bias=False),
-                nn.BatchNorm2d(hidden_dim),
+                nn.BatchNorm2d(hidden_dim, eps=batch_norm_epsilon, momentum=batch_norm_momentum),
+                Swish(),
                 Attention(channels=hidden_dim, reduction=se_reduction),  
-                Swish(), 
                 
                 # point-wise-linear
                 SamePadConv2d(hidden_dim, oup, kernel_size=1, stride=1, bias=False),
-                nn.BatchNorm2d(oup),
+                nn.BatchNorm2d(oup, eps=batch_norm_epsilon, momentum=batch_norm_momentum),
             )
 
     def forward(self, inputs):
@@ -127,7 +109,7 @@ class InvertedResidual(nn.Module):
 
         
 def round_filters(filters, width_coef, depth_divisor=8, min_depth=None):
-    """ Calculate and round number of filters based on depth multiplier. """
+    """Calculate and round number of filters based on depth multiplier. """
     if not width_coef:
         return filters
     filters *= width_coef
@@ -139,7 +121,7 @@ def round_filters(filters, width_coef, depth_divisor=8, min_depth=None):
 
 
 def round_repeats(repeats, depth_coef):
-    """ Round number of filters based on depth multiplier. """
+    """Round number of filters based on depth multiplier."""
     if not depth_coef:
         return repeats
     return int(math.ceil(depth_coef * repeats)) 
@@ -184,18 +166,17 @@ class EfficientNet(nn.Module):
         # building last several layers
         self.features.append(conv_bn_act(input_channel, self.last_channel, kernel_size=1, bias=False))
         self.features = nn.Sequential(*self.features)
-
-        # building classifier
+            
         self.classifier = nn.Sequential(
             nn.Dropout(0.2),
             nn.Linear(self.last_channel, num_classes),
             )
-                  
+     
         self._initialize_weights()
 
                       
     def _initialize_weights(self):
-        flattener = utils.Flattener()
+        flattener = Flattener()
         flattened = flattener(self)
         for m in flattened:
             if isinstance(m, nn.Conv2d):
@@ -216,3 +197,35 @@ class EfficientNet(nn.Module):
         x = x.mean(3).mean(2)
         x = self.classifier(x)
         return x
+    
+    
+def efficientnet(net="B0", pretrained=False):
+    """Weights for B5-B7 models should be loaded manually since after 100Mb 
+    Google Drive checks virusis. I'm lazzy to fix it sice I never user models
+    higher that B4 :)
+    """
+    net = net.upper()
+    model = EfficientNet(
+        width_coef    = EfficientNetParams[net].width, 
+        depth_coef    = EfficientNetParams[net].depth, 
+        scale         = EfficientNetParams[net].resolution, 
+        se_reduction  = 24, 
+        dropout_ratio = EfficientNetParams[net].dropout, 
+    )
+    
+    if pretrained:
+        assert net not in ['B5', 'B6', 'B7'], f'Weights for this model should be loaded manualy from {EfficientNetUrls[net]}'  
+        # create folder for weights if it doesn't exist
+        if not os.path.exists('weights'): 
+            os.makedirs('weights')
+        
+        # download weights if needed, progress bar in jupyter for wget currently doesn't implemented
+        weights_path = f'weights/efficientnet-{net}.pth'.lower()
+        if not os.path.isfile(weights_path):
+            wget.download(url=EfficientNetUrls[net], out=weights_path)
+                    
+        checkpoint = torch.load(weights_path)
+        filtered_state_dict = {k:v for k, v in checkpoint.items() if 'features' in k}
+        model.load_state_dict(filtered_state_dict, strict=False)
+        
+    return model
