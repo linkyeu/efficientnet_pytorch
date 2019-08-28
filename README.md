@@ -1,8 +1,21 @@
 # EfficientNet (PyTorch)
 
-My implementation of [__Efficient-Net__](https://arxiv.org/abs/1905.11946) in `nn.Sequence` manner (i.e. without `nn.Module`) for feature extraction layers. This approach is more convinient for working with __CAM (Class Activation Mapping)__ for example.
+My implementation of [__Efficient-Net__](https://arxiv.org/abs/1905.11946) in `nn.Sequence` manner (i.e. without `nn.Module`) for feature extraction layers. This approach is more convinient for working with __CAM (Class Activation Mapping)__ for example or [fast.ai](https://docs.fast.ai/) library.
 
-__TODO__:
-- upload weight for all EfficientNet scales
-- add use case how to train model on own data
-- add case how to extract features
+__To load pre-trained model simply run:__
+```
+import efficientnet
+model = efficientnet.efficientnet(net="B4", pretrained=True)
+```
+
+__For features extraction simply run:__
+```
+import efficientnet
+image = torch.randn(1, 3, 300, 300)
+model = efficientnet.efficientnet(net="B4", pretrained=True)
+features = model.features(image)
+```
+In same way you can get output from any layer.
+
+
+
