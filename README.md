@@ -1,6 +1,6 @@
 # EfficientNet (PyTorch)
 
-My implementation of [__Efficient-Net__](https://arxiv.org/abs/1905.11946) in `nn.Sequence` manner (i.e. without `nn.Module`) for feature extraction layers. This approach is more convinient for applying  [Class Activation Mapping)](http://gradcam.cloudcv.org/) or working with [fast.ai](https://docs.fast.ai/) library.
+My implementation of [__Efficient-Net__](https://arxiv.org/abs/1905.11946) in `nn.Sequence` manner (i.e. without `nn.Module`) for feature extraction layers. This approach is more convinient for applying  [Class Activation Mapping](http://gradcam.cloudcv.org/) or working with [fast.ai](https://docs.fast.ai/) library.
 
 __To load pre-trained model simply run:__
 ```
